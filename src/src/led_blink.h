@@ -1,6 +1,6 @@
 #pragma once
 
-#include <cstdint>
+#include <Arduino.h>
 
 class LedBlink {
 public:
@@ -8,9 +8,11 @@ public:
 
     void begin();
     void update();
+
     void on();
     void off();
     void toggle();
+
     void setPeriod(uint32_t ms);
 
 private:
