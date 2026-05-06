@@ -1,5 +1,5 @@
-#include "led_blink.h"
 #include <Arduino.h>
+#include "led_blink.h"
 
 LedBlink::LedBlink(uint8_t pin)
     : _pin(pin)
