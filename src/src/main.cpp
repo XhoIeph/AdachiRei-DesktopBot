@@ -3,6 +3,7 @@
 #include <PubSubClient.h>
 #include <HTTPClient.h>
 #include <Update.h>
+#include <ArduinoJson.h>
 #include "sensors.h"
 
 // ====== 用户配置 (按需修改) ======
@@ -46,29 +47,43 @@ void connectWiFi() {
     }
 }
 
+void handleMqttMessage(char* topic, byte* payload, unsigned int len) {
+    char buf[2048] = {};
+    memcpy(buf, payload, min(len, (unsigned int)2047));
+
+    // === ArduinoJson 7 语法 ===
+    JsonDocument doc;
+    DeserializationError err = deserializeJson(doc, buf);
+    if (err) return;
+
+    const char* cmd = doc["cmd"].as<const char*>();
+    if (!cmd) return;
+
+    if (!strcmp(cmd, "ota")) {
+        const char* url = doc["url"].as<const char*>();
+        if (!url || !url[0]) return;
+
+        HTTPClient http;
+        http.begin(String(url));
+        int code = http.GET();
+        if (code == 200) {
+            int total = http.getSize();
+            Update.begin(total);
+            WiFiClient* stream = http.getStreamPtr();
+            Update.writeStream(*stream);
+            if (Update.end()) {
+                delay(500);
+                ESP.restart();
+            }
+        }
+        http.end();
+    }
+}
+
 void connectMQTT() {
     mqtt.setServer(MQTT_BROKER, MQTT_PORT);
     mqtt.setCallback([](char* topic, byte* payload, unsigned int len) {
-        char buf[2048] = {};
-        memcpy(buf, payload, min(len, (unsigned int)2047));
-        StaticJsonDocument<1024> doc;
-        if (deserializeJson(doc, buf)) return;
-        const char* cmd = doc["cmd"];
-        if (!cmd) return;
-        if (!strcmp(cmd, "ota")) {
-            String url = doc["url"] | "";
-            HTTPClient http;
-            http.begin(url);
-            int code = http.GET();
-            if (code == 200) {
-                int total = http.getSize();
-                Update.begin(total);
-                WiFiClient* stream = http.getStreamPtr();
-                Update.writeStream(*stream);
-                if (Update.end()) { delay(500); ESP.restart(); }
-            }
-            http.end();
-        }
+        handleMqttMessage(topic, payload, len);
     });
     while (!mqtt.connected()) {
         mqtt.connect(DEVICE_ID);
