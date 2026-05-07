@@ -8,6 +8,7 @@
 #include <Wire.h>
 #include <SPI.h>
 #include <berry.h>
+#include <ArduinoJson.h>
 #include <vector>
 
 // ====== 用户配置 ======
@@ -64,17 +65,17 @@ static int b_dht_read(bvm* vm) {
 
 // I2C
 static int b_i2c_scan(bvm* vm) {
-    String r="["; for(int a=8;a<120;a++){ Wire.beginTransmission(a); if(!Wire.endTransmission()){ if(r!="[")r+=","; r+=a; } } r+="]";
+    String r="["; for(int a=8;a<120;a++){ Wire.beginTransmission((uint8_t)a); if(!Wire.endTransmission()){ if(r!="[")r+=","; r+=a; } } r+="]";
     be_pushstring(vm,r.c_str()); be_return(vm);
 }
 static int b_i2c_write(bvm* vm) {
-    Wire.beginTransmission(be_toint(vm,1));
+    Wire.beginTransmission((uint8_t)be_toint(vm,1));
     Wire.write((uint8_t*)be_tostring(vm,2),strlen(be_tostring(vm,2)));
     be_pushint(vm, Wire.endTransmission()==0); be_return(vm);
 }
 static int b_i2c_read(bvm* vm) {
     int addr=be_toint(vm,1), len=be_toint(vm,2);
-    Wire.requestFrom(addr,len); String r;
+    Wire.requestFrom((uint8_t)addr,(size_t)len); String r;
     while(Wire.available()) r+=(char)Wire.read();
     be_pushstring(vm,r.c_str()); be_return(vm);
 }
@@ -133,8 +134,8 @@ void berrySetup() {
 bool berryExec(const String& script) {
     if(!berry_vm) return false;
     be_loadstring(berry_vm, script.c_str());
-    int rc = be_call(berry_vm, 0);
-    return rc == 0;
+    be_call(berry_vm, 0);
+    return true;
 }
 
 // ====== 硬件 Manifest ======
@@ -149,12 +150,12 @@ void applyManifest(const String& json) {
     File f = SPIFFS.open("/hardware.json", FILE_WRITE);
     if(f){ f.print(json); f.close(); }
     // I2C 引脚
-    if(doc.containsKey("i2c_sda") && doc.containsKey("i2c_scl"))
-        Wire.begin(doc["i2c_sda"], doc["i2c_scl"]);
+    if(!doc["i2c_sda"].isNull() && !doc["i2c_scl"].isNull())
+        Wire.begin(doc["i2c_sda"].as<int>(), doc["i2c_scl"].as<int>());
     else Wire.begin();
     // SPI 引脚
-    if(doc.containsKey("spi_mosi"))
-        SPI.begin(doc["spi_sck"]|18, doc["spi_miso"]|19, doc["spi_mosi"]|23, doc["spi_cs"]|-1);
+    if(!doc["spi_mosi"].isNull())
+        SPI.begin(doc["spi_sck"].as<int>()|18, doc["spi_miso"].as<int>()|19, doc["spi_mosi"].as<int>()|23, doc["spi_cs"].as<int>()|(-1));
     else SPI.begin();
 }
 
