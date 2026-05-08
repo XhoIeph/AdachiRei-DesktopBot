@@ -1,9 +1,11 @@
 #include <Arduino.h>
 #include <WiFi.h>
+#define MQTT_MAX_PACKET_SIZE 4096
 #include <PubSubClient.h>
 #include <HTTPClient.h>
 #include <Update.h>
 #include <SPIFFS.h>
+#define ARDUINOJSON_DEFAULT_POOL_SIZE 4096
 #include <DHT.h>
 #include <Wire.h>
 #include <SPI.h>
@@ -37,14 +39,16 @@ static int b_gpio_set(bvm* vm) {
 static int b_gpio_read(bvm* vm)   { be_pushint(vm, digitalRead(be_toint(vm,1))); be_return(vm); }
 static int b_delay_ms(bvm* vm)    { delay(be_toint(vm,1)); be_return_nil(vm); }
 
+static bool _pwm0_setup = false;
 static int b_pwm_duty(bvm* vm) {
     int pin=be_toint(vm,1), duty=be_toint(vm,2);
-    static bool setup=false; if(!setup){ ledcSetup(0,5000,10); setup=true; }
+    if(!_pwm0_setup){ ledcSetup(0,5000,10); _pwm0_setup=true; }
     ledcAttachPin(pin,0); ledcWrite(0,constrain(duty,0,1023));
     be_return_nil(vm);
 }
 static int b_pwm_freq(bvm* vm) {
     ledcSetup(0,be_toint(vm,2),10); ledcAttachPin(be_toint(vm,1),0);
+    _pwm0_setup = true;
     be_return_nil(vm);
 }
 
