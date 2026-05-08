@@ -87,4 +87,11 @@ char* be_readstring(char* buffer, size_t size) {
     return buffer;
 }
 
+// ===== Berry 核心表 — 最小嵌入式构建 =====
+// 这些符号由 Berry 代码生成器生成，但 PlatformIO 不编译 generate/*.c
+// 这里提供空表，嵌入式场景不使用 Berry 模块加载功能
+
+const bmodule* be_module_table[] = {nullptr};
+const bclass*  be_class_table[]  = {nullptr};
+
 } // extern "C"
