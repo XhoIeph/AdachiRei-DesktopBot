@@ -26,8 +26,23 @@ jobs:
           mkdir -p release
           BUILD_DIR=$(ls -d .pio/build/*/ | head -1)
           cp "$BUILD_DIR/firmware.bin" release/firmware.bin
+          CHIP=$(python3 -c "
+          import configparser
+          cp = configparser.ConfigParser()
+          cp.read('platformio.ini')
+          for sec in cp.sections():
+              if sec.startswith('env:'):
+                  board = cp[sec].get('board','')
+                  if 'esp32s3' in board: print('esp32s3')
+                  elif 'esp32c3' in board: print('esp32c3')
+                  elif 'esp32c6' in board: print('esp32c6')
+                  elif 'esp32c2' in board: print('esp32c2')
+                  elif 'esp32s2' in board: print('esp32s2')
+                  else: print('esp32')
+                  break
+          ")
           pip install esptool
-          esptool.py --chip auto merge_bin -o release/merged_firmware.bin \
+          esptool --chip "$CHIP" merge-bin -o release/merged_firmware.bin \
             0x1000 "$BUILD_DIR/bootloader.bin" \
             0x8000 "$BUILD_DIR/partitions.bin" \
             0x10000 "$BUILD_DIR/firmware.bin"
