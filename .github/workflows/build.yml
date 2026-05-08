@@ -21,9 +21,19 @@ jobs:
         run: pip install platformio
       - name: Build firmware
         run: pio run
-      - uses: actions/upload-artifact@v4
+      - name: Prepare release
+        run: |
+          mkdir -p release
+          BUILD_DIR=$(ls -d .pio/build/*/ | head -1)
+          cp "$BUILD_DIR/firmware.bin" release/firmware.bin
+          pip install esptool
+          esptool.py --chip auto merge_bin -o release/merged_firmware.bin \
+            0x1000 "$BUILD_DIR/bootloader.bin" \
+            0x8000 "$BUILD_DIR/partitions.bin" \
+            0x10000 "$BUILD_DIR/firmware.bin"
+      - uses: softprops/action-gh-release@v2
         with:
-          name: firmware
-          path: .pio/build/**/firmware.bin
-          retention-days: 30
-
+          files: |
+            release/firmware.bin
+            release/merged_firmware.bin
+          tag_name: firmware-latest
