@@ -224,7 +224,7 @@ void mqttConnect() {
 }
 
 void statusReport() {
-    String j="{\"id\":\""+String(DEVICE_ID)+"\",\"heap\":"+String(ESP.getFreeHeap())+",\"uptime\":"+String(millis()/1000)+",\"rssi\":"+String(WiFi.RSSI())+",\"scripts\":"+String(scripts.size())+"}";
+    String j="{\\\"id\\\":\\\""+String(DEVICE_ID)+"\\\",\\\"heap\\\":"+String(ESP.getFreeHeap())+",\\\"uptime\\\":"+String(millis()/1000)+",\\\"rssi\\\":"+String(WiFi.RSSI())+",\\\"scripts\\\":"+String(scripts.size())+"}";
     mqtt.publish(MQTT_TOPIC_PUB,j.c_str());
 }
 
