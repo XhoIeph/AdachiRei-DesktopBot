@@ -50,6 +50,7 @@ if os.path.isdir(tools):
 
 # Copy generated files
 src_gen = os.path.join(tmp_dir, "generate")
+berry_src = os.path.join(berry_dir, "src")
 if os.path.isdir(src_gen):
     for f in os.listdir(src_gen):
         src = os.path.join(src_gen, f)
@@ -57,6 +58,12 @@ if os.path.isdir(src_gen):
         if os.path.isfile(src):
             shutil.copy2(src, dst)
             print(f"berry_prebuild: copied {f}")
+            # Also copy .c files to src/ so PlatformIO compiles them
+            if f.endswith(".c"):
+                dst_c = os.path.join(berry_src, f)
+                if not os.path.exists(dst_c):
+                    shutil.copy2(src, dst_c)
+                    print(f"berry_prebuild: compiled {f} -> src/")
 else:
     # Last resort: create minimal stub
     with open(strtab, "w") as f:
