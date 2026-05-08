@@ -41,9 +41,14 @@ jobs:
                   else: print('esp32')
                   break
           ")
+          # ESP32 经典: bootloader=0x1000; S2/S3/C2/C3/C6: bootloader=0x0
+          case "$CHIP" in
+            esp32) BL=0x1000 ;;
+            *)     BL=0x0    ;;
+          esac
           pip install esptool
           esptool --chip "$CHIP" merge-bin -o release/merged_firmware.bin \
-            0x1000 "$BUILD_DIR/bootloader.bin" \
+            ${BL} "$BUILD_DIR/bootloader.bin" \
             0x8000 "$BUILD_DIR/partitions.bin" \
             0x10000 "$BUILD_DIR/firmware.bin"
       - uses: actions/upload-artifact@v4
