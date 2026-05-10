@@ -1,0 +1,300 @@
+#include <Arduino.h>
+#include <WiFi.h>
+#define MQTT_MAX_PACKET_SIZE 4096
+#include <PubSubClient.h>
+#include <HTTPClient.h>
+#include <Update.h>
+#include <SPIFFS.h>
+#define ARDUINOJSON_DEFAULT_POOL_SIZE 4096
+#include <DHT.h>
+#include <Wire.h>
+#include <SPI.h>
+#include <EspLuaEngine.h>
+extern "C" {
+#include <lua.h>
+#include <lualib.h>
+#include <lauxlib.h>
+}
+#include <ArduinoJson.h>
+#include <vector>
+
+// ====== 用户配置 ======
+const char* WIFI_SSID   = "YOUR_SSID";
+const char* WIFI_PASS   = "YOUR_PASS";
+const char* MQTT_BROKER = "broker.emqx.io";
+const int   MQTT_PORT   = 1883;
+const char* MQTT_TOPIC_SUB = "astrbot/esp32/control";
+const char* MQTT_TOPIC_PUB = "astrbot/esp32/status";
+const char* DEVICE_ID   = "esp32_01";
+const int   LED_PIN     = 2;
+
+// ====== Lua VM (勿修改) ======
+lua_State* L = nullptr;
+
+// ---------- C → Lua 绑定 ----------
+static int l_led_on(lua_State* L)      { digitalWrite(LED_PIN, HIGH); return 0; }
+static int l_led_off(lua_State* L)     { digitalWrite(LED_PIN, LOW);  return 0; }
+static int l_led_toggle(lua_State* L)  { digitalWrite(LED_PIN, !digitalRead(LED_PIN)); return 0; }
+
+static int l_gpio_set(lua_State* L) {
+    pinMode(lua_tointeger(L,1), OUTPUT);
+    digitalWrite(lua_tointeger(L,1), lua_tointeger(L,2)?HIGH:LOW);
+    return 0;
+}
+static int l_gpio_read(lua_State* L)   { lua_pushinteger(L, digitalRead(lua_tointeger(L,1))); return 1; }
+static int l_delay_ms(lua_State* L)    { delay(lua_tointeger(L,1)); return 0; }
+
+static bool _pwm0_setup = false;
+static int l_pwm_duty(lua_State* L) {
+    int pin=lua_tointeger(L,1), duty=lua_tointeger(L,2);
+    if(duty <= 0) {
+        ledcDetachPin(pin);
+        pinMode(pin,OUTPUT); digitalWrite(pin,LOW);
+    } else {
+        if(!_pwm0_setup){ ledcSetup(0,5000,10); _pwm0_setup=true; }
+        ledcAttachPin(pin,0); ledcWrite(0,constrain(duty,1,1023));
+    }
+    return 0;
+}
+static int l_pwm_freq(lua_State* L) {
+    ledcSetup(0,lua_tointeger(L,2),10); ledcAttachPin(lua_tointeger(L,1),0);
+    _pwm0_setup = true;
+    return 0;
+}
+
+static int l_analog_read(lua_State* L) { lua_pushinteger(L, analogRead(lua_tointeger(L,1))); return 1; }
+
+// DHT11/DHT22 — 返回 Lua table: {temp=25.0, humidity=60.0}
+static int l_dht_read(lua_State* L) {
+    int pin=lua_tointeger(L,1), type=lua_tointeger(L,2);
+    if(type!=11 && type!=22) type=11;
+    DHT dht(pin, type); dht.begin();
+    float t=dht.readTemperature(), h=dht.readHumidity();
+    if(isnan(t)||isnan(h)){ return 0; }
+    lua_newtable(L);
+    lua_pushnumber(L, t); lua_setfield(L, -2, "temp");
+    lua_pushnumber(L, h); lua_setfield(L, -2, "humidity");
+    return 1;
+}
+
+// I2C
+static int l_i2c_scan(lua_State* L) {
+    String r="["; for(int a=8;a<120;a++){ Wire.beginTransmission((uint8_t)a); if(!Wire.endTransmission()){ if(r!="[")r+=","; r+=a; } } r+="]";
+    lua_pushstring(L,r.c_str()); return 1;
+}
+static int l_i2c_write(lua_State* L) {
+    Wire.beginTransmission((uint8_t)lua_tointeger(L,1));
+    Wire.write((uint8_t*)lua_tostring(L,2),strlen(lua_tostring(L,2)));
+    lua_pushinteger(L, Wire.endTransmission()==0); return 1;
+}
+static int l_i2c_read(lua_State* L) {
+    int addr=lua_tointeger(L,1), len=lua_tointeger(L,2);
+    Wire.requestFrom((uint8_t)addr,(size_t)len); String r;
+    while(Wire.available()) r+=(char)Wire.read();
+    lua_pushstring(L,r.c_str()); return 1;
+}
+
+// UART
+static int l_uart_write(lua_State* L) {
+    int p=lua_tointeger(L,1); const char* s=lua_tostring(L,2);
+    if(p==0)Serial.print(s); else if(p==1)Serial1.print(s); else if(p==2)Serial2.print(s);
+    return 0;
+}
+
+// SPI
+static int l_spi_xfer(lua_State* L) {
+    SPI.beginTransaction(SPISettings(1000000,MSBFIRST,SPI_MODE0));
+    uint8_t b=SPI.transfer(lua_tointeger(L,1));
+    SPI.endTransaction();
+    lua_pushinteger(L,b); return 1;
+}
+
+// MQTT 发布 + 日志
+WiFiClient wific; PubSubClient mqtt(wific);
+static int l_mqtt_pub(lua_State* L) {
+    mqtt.publish(lua_tostring(L,1), lua_tostring(L,2));
+    return 0;
+}
+static int l_log(lua_State* L)        { Serial.println(lua_tostring(L,1)); return 0; }
+static int l_device_id(lua_State* L)  { lua_pushstring(L,DEVICE_ID); return 1; }
+static int l_free_heap(lua_State* L)  { lua_pushinteger(L,ESP.getFreeHeap()); return 1; }
+static int l_millis(lua_State* L)     { lua_pushinteger(L,millis()); return 1; }
+
+// ---------- Lua VM 初始化 ----------
+void luaSetup() {
+    L = luaL_newstate();
+    lua_gc(L, LUA_GCGEN, 0, 0);  // 分代 GC 模式
+
+    // 按需加载标准库
+    luaL_requiref(L, "_G", luaopen_base, 1); lua_pop(L, 1);
+    luaL_requiref(L, LUA_STRLIBNAME, luaopen_string, 1); lua_pop(L, 1);
+    luaL_requiref(L, LUA_TABLIBNAME, luaopen_table, 1); lua_pop(L, 1);
+    luaL_requiref(L, LUA_MATHLIBNAME, luaopen_math, 1); lua_pop(L, 1);
+    luaL_requiref(L, LUA_COLIBNAME, luaopen_coroutine, 1); lua_pop(L, 1);
+    luaL_requiref(L, LUA_IOLIBNAME, luaopen_io, 1); lua_pop(L, 1);
+    luaL_requiref(L, LUA_OSLIBNAME, luaopen_os, 1); lua_pop(L, 1);
+    // 沙箱: 删除危险的 os 函数 (必须操作 os 表, 不是 _G)
+    lua_getglobal(L, "os");
+    lua_pushnil(L); lua_setfield(L, -2, "execute");
+    lua_pushnil(L); lua_setfield(L, -2, "exit");
+    lua_pushnil(L); lua_setfield(L, -2, "getenv");
+    lua_pushnil(L); lua_setfield(L, -2, "setlocale");
+    lua_pushnil(L); lua_setfield(L, -2, "tmpname");
+    lua_pop(L, 1);
+    luaL_requiref(L, LUA_LOADLIBNAME, luaopen_package, 1); lua_pop(L, 1);
+    luaL_requiref(L, LUA_DBLIBNAME, luaopen_debug, 1); lua_pop(L, 1);
+
+    // 注册 20 个硬件函数
+    lua_register(L, "led_on",       l_led_on);
+    lua_register(L, "led_off",      l_led_off);
+    lua_register(L, "led_toggle",   l_led_toggle);
+    lua_register(L, "gpio_set",     l_gpio_set);
+    lua_register(L, "gpio_read",    l_gpio_read);
+    lua_register(L, "delay_ms",     l_delay_ms);
+    lua_register(L, "pwm_duty",     l_pwm_duty);
+    lua_register(L, "pwm_freq",     l_pwm_freq);
+    lua_register(L, "analog_read",  l_analog_read);
+    lua_register(L, "dht_read",     l_dht_read);
+    lua_register(L, "i2c_scan",    l_i2c_scan);
+    lua_register(L, "i2c_write",   l_i2c_write);
+    lua_register(L, "i2c_read",    l_i2c_read);
+    lua_register(L, "uart_write",   l_uart_write);
+    lua_register(L, "spi_xfer",    l_spi_xfer);
+    lua_register(L, "mqtt_pub",     l_mqtt_pub);
+    lua_register(L, "log",          l_log);
+    lua_register(L, "device_id",    l_device_id);
+    lua_register(L, "free_heap",    l_free_heap);
+    lua_register(L, "millis",       l_millis);
+
+    // 重定向 print → Serial
+    lua_getglobal(L, "print");
+    lua_pushcfunction(L, l_log);
+    lua_setglobal(L, "print");
+}
+
+bool luaExec(const String& script) {
+    if(!L) return false;
+    if(luaL_dostring(L, script.c_str()) != LUA_OK) {
+        const char* err = lua_tostring(L, -1);
+        if(err) Serial.println(err);
+        lua_pop(L, 1);
+        return false;
+    }
+    return true;
+}
+
+// ====== 硬件 Manifest ======
+// 格式: {"dht11_pin":4, "i2c_sda":21, "i2c_scl":22, "spi_mosi":23, "spi_miso":19, "spi_sck":18}
+String hwManifest;
+
+void applyManifest(const String& json) {
+    JsonDocument doc;
+    if(deserializeJson(doc, json)) return;
+    hwManifest = json;
+    // 保存到 SPIFFS
+    File f = SPIFFS.open("/hardware.json", FILE_WRITE);
+    if(f){ f.print(json); f.close(); }
+    // I2C 引脚
+    if(!doc["i2c_sda"].isNull() && !doc["i2c_scl"].isNull())
+        Wire.begin(doc["i2c_sda"].as<int>(), doc["i2c_scl"].as<int>());
+    else Wire.begin();
+    // SPI 引脚
+    if(!doc["spi_mosi"].isNull())
+        SPI.begin(doc["spi_sck"].as<int>()|18, doc["spi_miso"].as<int>()|19, doc["spi_mosi"].as<int>()|23, doc["spi_cs"].as<int>()|(-1));
+    else SPI.begin();
+}
+
+void loadManifest() {
+    File f = SPIFFS.open("/hardware.json");
+    if(f){ hwManifest = f.readString(); f.close(); applyManifest(hwManifest); }
+    else{ Wire.begin(); SPI.begin(); }
+}
+
+// ====== SPIFFS 脚本存储 ======
+struct SavedScript { String name, code, event; unsigned long interval, last; };
+std::vector<SavedScript> scripts;
+
+void loadScripts() {
+    scripts.clear();
+    File root = SPIFFS.open("/scripts");
+    if(!root||!root.isDirectory()){ SPIFFS.mkdir("/scripts"); return; }
+    File f = root.openNextFile();
+    while(f){ if(!f.isDirectory()&&String(f.name()).endsWith(".lua")){
+        SavedScript s; s.code=f.readString(); s.name=String(f.name()); s.last=0;
+        // parse event trigger from script header: -- @event:boot  -- @event:timer_5s
+        int ei=s.code.indexOf("-- @event:");
+        if(ei>=0){ int en=ei+10, el=s.code.indexOf('\n',en); if(el>en) s.event=s.code.substring(en,el); }
+        if(s.event.startsWith("timer_")){ s.interval=s.event.substring(6).toInt()*1000L; if(!s.interval)s.interval=5000; }
+        scripts.push_back(s);
+    } f=root.openNextFile(); }
+    root.close();
+}
+
+void saveScript(const String& name, const String& code) {
+    String path="/scripts/"+name; if(!path.endsWith(".lua")) path+=".lua";
+    File f=SPIFFS.open(path,FILE_WRITE); if(f){ f.print(code); f.close(); }
+    loadScripts();
+}
+
+void runEvent(const String& ev) {
+    for(auto& s:scripts) if(s.event==ev && millis()-s.last>=s.interval){ s.last=millis(); luaExec(s.code); }
+}
+
+// ====== WiFi / MQTT / OTA ======
+unsigned long lastStatus=0;
+void wifiConnect() {
+    WiFi.begin(WIFI_SSID,WIFI_PASS);
+    for(int i=0;i<30&&WiFi.status()!=WL_CONNECTED;i++) delay(1000);
+}
+
+void onMqtt(char* t, byte* p, unsigned int l) {
+    char b[4096]={}; memcpy(b,p,min(l,(unsigned)4095));
+    JsonDocument doc;
+    if(deserializeJson(doc,b)) return;
+    const char* cmd=doc["cmd"]; if(!cmd) return;
+    if(!strcmp(cmd,"run_lua"))   { const char* s=doc["script"]|""; if(s[0]) luaExec(String(s)); }
+    else if(!strcmp(cmd,"save_lua")){ const char* n=doc["name"]|"s"; const char* s=doc["script"]|""; if(s[0]) saveScript(String(n),String(s)); }
+    else if(!strcmp(cmd,"set_hardware")){ const char* m=doc["manifest"]; if(m) applyManifest(String(m)); }
+    else if(!strcmp(cmd,"ota")) {
+        String url=doc["url"]|""; if(url.length()){
+            HTTPClient h; h.begin(url); if(h.GET()==200){ Update.begin(h.getSize()); Update.writeStream(*h.getStreamPtr()); if(Update.end()){ delay(500); ESP.restart(); } } h.end();
+        }
+    }
+}
+
+void mqttConnect() {
+    mqtt.setServer(MQTT_BROKER,MQTT_PORT); mqtt.setCallback(onMqtt);
+    while(!mqtt.connected()){ mqtt.connect(DEVICE_ID); delay(2000); }
+    mqtt.subscribe(MQTT_TOPIC_SUB);
+}
+
+void statusReport() {
+    String j="{\\\"id\\\":\\\""+String(DEVICE_ID)+"\\\",\\\"heap\\\":"+String(ESP.getFreeHeap())+",\\\"uptime\\\":"+String(millis()/1000)+",\\\"rssi\\\":"+String(WiFi.RSSI())+",\\\"scripts\\\":"+String(scripts.size())+"}";
+    mqtt.publish(MQTT_TOPIC_PUB,j.c_str());
+}
+
+// ====== 用户功能 ======
+void userSetup() { /* >>> USER CODE: 初始化 <<< */ }
+void userLoop() { /* >>> USER CODE: 循环 <<< */ }
+
+// ====== 入口 ======
+void setup() {
+    Serial.begin(115200);
+    SPIFFS.begin(true);
+    luaSetup();
+    loadManifest();
+    loadScripts();
+    pinMode(LED_PIN,OUTPUT);
+    wifiConnect();
+    mqttConnect();
+    runEvent("boot");
+    userSetup();
+}
+
+void loop() {
+    mqtt.loop();
+    unsigned long n=millis();
+    if(n-lastStatus>30000){ statusReport(); lastStatus=n; }
+    runEvent("timer_5s"); runEvent("timer_10s"); runEvent("timer_30s"); runEvent("timer_60s");
+    userLoop();
+}
