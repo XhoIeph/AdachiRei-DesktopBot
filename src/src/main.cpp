@@ -158,10 +158,11 @@ bool luaExec(const String& script) {
     if(!L) return false;
     if(luaL_dostring(L, script.c_str()) != LUA_OK) {
         const char* err = lua_tostring(L, -1);
-        if(err) Serial.println(err);
+        Serial.print("[Lua] "); Serial.println(err ? err : "unknown error");
         lua_pop(L, 1);
         return false;
     }
+    lua_gc(L, LUA_GCCOLLECT, 0);  // 脚本执行完后回收内存
     return true;
 }
 
@@ -229,17 +230,28 @@ void wifiConnect() {
     for(int i=0;i<30&&WiFi.status()!=WL_CONNECTED;i++) delay(1000);
 }
 
+void otaTask(void* param) {
+    String* url=(String*)param;
+    HTTPClient h; h.begin(*url);
+    if(h.GET()==200){ Update.begin(h.getSize()); Update.writeStream(*h.getStreamPtr()); if(Update.end()){ delay(500); ESP.restart(); } }
+    h.end(); delete url; vTaskDelete(NULL);
+}
+
 void onMqtt(char* t, byte* p, unsigned int l) {
-    char b[4096]={}; memcpy(b,p,min(l,(unsigned)4095));
+    char* b=new char[min(l,(unsigned)4095)+1]{};
+    memcpy(b,p,min(l,(unsigned)4095));
     JsonDocument doc;
-    if(deserializeJson(doc,b)) return;
+    DeserializationError err=deserializeJson(doc,b);
+    delete[] b;
+    if(err) return;
     const char* cmd=doc["cmd"]; if(!cmd) return;
     if(!strcmp(cmd,"run_lua"))   { const char* s=doc["script"]|""; if(s[0]) luaExec(String(s)); }
     else if(!strcmp(cmd,"save_lua")){ const char* n=doc["name"]|"s"; const char* s=doc["script"]|""; if(s[0]) saveScript(String(n),String(s)); }
     else if(!strcmp(cmd,"set_hardware")){ const char* m=doc["manifest"]; if(m) applyManifest(String(m)); }
     else if(!strcmp(cmd,"ota")) {
-        String url=doc["url"]|""; if(url.length()){
-            HTTPClient h; h.begin(url); if(h.GET()==200){ Update.begin(h.getSize()); Update.writeStream(*h.getStreamPtr()); if(Update.end()){ delay(500); ESP.restart(); } } h.end();
+        const char* u=doc["url"]|""; if(u[0]){
+            String* url=new String(u);
+            xTaskCreate(otaTask,"ota",10240,url,1,NULL);
         }
     }
 }
