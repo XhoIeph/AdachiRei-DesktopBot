@@ -10,11 +10,6 @@
 #include <Wire.h>
 #include <SPI.h>
 #include <EspLuaEngine.h>
-extern "C" {
-#include <lua.h>
-#include <lualib.h>
-#include <lauxlib.h>
-}
 #include <ArduinoJson.h>
 #include <vector>
 
