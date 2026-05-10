@@ -120,24 +120,11 @@ void luaSetup() {
     L = luaL_newstate();
     lua_gc(L, LUA_GCGEN, 0, 0);  // 分代 GC 模式
 
-    // 按需加载标准库
+    // 按需加载标准库 (EspLuaEngine 仅编译了 base/string/table/math)
     luaL_requiref(L, "_G", luaopen_base, 1); lua_pop(L, 1);
     luaL_requiref(L, LUA_STRLIBNAME, luaopen_string, 1); lua_pop(L, 1);
     luaL_requiref(L, LUA_TABLIBNAME, luaopen_table, 1); lua_pop(L, 1);
     luaL_requiref(L, LUA_MATHLIBNAME, luaopen_math, 1); lua_pop(L, 1);
-    luaL_requiref(L, LUA_COLIBNAME, luaopen_coroutine, 1); lua_pop(L, 1);
-    luaL_requiref(L, LUA_IOLIBNAME, luaopen_io, 1); lua_pop(L, 1);
-    luaL_requiref(L, LUA_OSLIBNAME, luaopen_os, 1); lua_pop(L, 1);
-    // 沙箱: 删除危险的 os 函数 (必须操作 os 表, 不是 _G)
-    lua_getglobal(L, "os");
-    lua_pushnil(L); lua_setfield(L, -2, "execute");
-    lua_pushnil(L); lua_setfield(L, -2, "exit");
-    lua_pushnil(L); lua_setfield(L, -2, "getenv");
-    lua_pushnil(L); lua_setfield(L, -2, "setlocale");
-    lua_pushnil(L); lua_setfield(L, -2, "tmpname");
-    lua_pop(L, 1);
-    luaL_requiref(L, LUA_LOADLIBNAME, luaopen_package, 1); lua_pop(L, 1);
-    luaL_requiref(L, LUA_DBLIBNAME, luaopen_debug, 1); lua_pop(L, 1);
 
     // 注册 20 个硬件函数
     lua_register(L, "led_on",       l_led_on);
