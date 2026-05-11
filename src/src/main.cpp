@@ -21,7 +21,7 @@ const int   MQTT_PORT   = 1883;
 const char* MQTT_TOPIC_SUB = "astrbot/esp32/control";
 const char* MQTT_TOPIC_PUB = "astrbot/esp32/status";
 const char* DEVICE_ID   = "esp32_01";
-const int   LED_PIN     = 2;
+const int   LED_PIN     = 48;
 
 // ====== Lua VM (勿修改) ======
 lua_State* L = nullptr;
@@ -42,13 +42,8 @@ static int l_delay_ms(lua_State* L)    { delay(lua_tointeger(L,1)); return 0; }
 static bool _pwm0_setup = false;
 static int l_pwm_duty(lua_State* L) {
     int pin=lua_tointeger(L,1), duty=lua_tointeger(L,2);
-    if(duty <= 0) {
-        ledcDetachPin(pin);
-        pinMode(pin,OUTPUT); digitalWrite(pin,LOW);
-    } else {
-        if(!_pwm0_setup){ ledcSetup(0,5000,10); _pwm0_setup=true; }
-        ledcAttachPin(pin,0); ledcWrite(0,constrain(duty,1,1023));
-    }
+    if(!_pwm0_setup){ ledcSetup(0,5000,10); _pwm0_setup=true; ledcAttachPin(pin,0); }
+    ledcWrite(0,constrain(duty,0,1023));
     return 0;
 }
 static int l_pwm_freq(lua_State* L) {
@@ -263,7 +258,7 @@ void mqttConnect() {
 }
 
 void statusReport() {
-    String j="{\"id\":\""+String(DEVICE_ID)+"\",\"heap\":"+String(ESP.getFreeHeap())+",\"uptime\":"+String(millis()/1000)+",\"rssi\":"+String(WiFi.RSSI())+",\"scripts\":"+String(scripts.size())+"}";
+    String j="{\\\"id\\\":\\\""+String(DEVICE_ID)+"\\\",\\\"heap\\\":"+String(ESP.getFreeHeap())+",\\\"uptime\\\":"+String(millis()/1000)+",\\\"rssi\\\":"+String(WiFi.RSSI())+",\\\"scripts\\\":"+String(scripts.size())+"}";
     mqtt.publish(MQTT_TOPIC_PUB,j.c_str());
 }
 
