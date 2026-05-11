@@ -21,7 +21,7 @@ const int   MQTT_PORT   = 1883;
 const char* MQTT_TOPIC_SUB = "astrbot/esp32/control";
 const char* MQTT_TOPIC_PUB = "astrbot/esp32/status";
 const char* DEVICE_ID   = "esp32_01";
-const int   LED_PIN     = 48;
+const int   LED_PIN     = 2;
 
 // ====== Lua VM (勿修改) ======
 lua_State* L = nullptr;
@@ -38,6 +38,7 @@ static int l_gpio_set(lua_State* L) {
 }
 static int l_gpio_read(lua_State* L)   { lua_pushinteger(L, digitalRead(lua_tointeger(L,1))); return 1; }
 static int l_delay_ms(lua_State* L)    { delay(lua_tointeger(L,1)); return 0; }
+static int l_delay_us(lua_State* L)    { delayMicroseconds(lua_tointeger(L,1)); return 0; }
 
 static bool _pwm0_setup = false;
 static int l_pwm_duty(lua_State* L) {
@@ -121,13 +122,14 @@ void luaSetup() {
     luaL_requiref(L, LUA_TABLIBNAME, luaopen_table, 1); lua_pop(L, 1);
     luaL_requiref(L, LUA_MATHLIBNAME, luaopen_math, 1); lua_pop(L, 1);
 
-    // 注册 20 个硬件函数
+    // 注册 21 个硬件函数
     lua_register(L, "led_on",       l_led_on);
     lua_register(L, "led_off",      l_led_off);
     lua_register(L, "led_toggle",   l_led_toggle);
     lua_register(L, "gpio_set",     l_gpio_set);
     lua_register(L, "gpio_read",    l_gpio_read);
     lua_register(L, "delay_ms",     l_delay_ms);
+    lua_register(L, "delay_us",     l_delay_us);
     lua_register(L, "pwm_duty",     l_pwm_duty);
     lua_register(L, "pwm_freq",     l_pwm_freq);
     lua_register(L, "analog_read",  l_analog_read);
@@ -263,8 +265,21 @@ void statusReport() {
 }
 
 // ====== 用户功能 ======
-void userSetup() { /* >>> USER CODE: 初始化 <<< */ }
-void userLoop() { /* >>> USER CODE: 循环 <<< */ }
+void userSetup() {
+    pinMode(LED_PIN, OUTPUT);
+    digitalWrite(LED_PIN, HIGH);
+    Serial.println("Setup Done - Ready!");
+}
+
+void userLoop() {
+    static unsigned long lastBlink = 0;
+    static bool ledState = false;
+    if (millis() - lastBlink > 500) {
+        lastBlink = millis();
+        ledState = !ledState;
+        digitalWrite(LED_PIN, ledState);
+    }
+}
 
 // ====== 入口 ======
 void setup() {
