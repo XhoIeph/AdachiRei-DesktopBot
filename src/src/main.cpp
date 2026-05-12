@@ -45,7 +45,8 @@ static bool _pwm0_setup = false;
 static int l_pwm_duty(lua_State* L) {
     int pin=lua_tointeger(L,1), duty=lua_tointeger(L,2);
     if(!_pwm0_setup){ ledcSetup(0,5000,10); _pwm0_setup=true; ledcAttachPin(pin,0); }
-    ledcWrite(0,constrain(duty,0,1023));
+    ledc_set_duty(LEDC_LOW_SPEED_MODE,LEDC_CHANNEL_0,constrain(duty,0,1023));
+    ledc_update_duty(LEDC_LOW_SPEED_MODE,LEDC_CHANNEL_0);
     return 0;
 }
 static int l_pwm_freq(lua_State* L) {
