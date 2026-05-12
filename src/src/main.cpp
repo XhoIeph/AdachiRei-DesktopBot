@@ -9,6 +9,7 @@
 #include <DHT.h>
 #include <Wire.h>
 #include <SPI.h>
+#include <driver/ledc.h>
 #include <EspLuaEngine.h>
 #include <ArduinoJson.h>
 #include <vector>
@@ -50,6 +51,16 @@ static int l_pwm_duty(lua_State* L) {
 static int l_pwm_freq(lua_State* L) {
     ledcSetup(0,lua_tointeger(L,2),10); ledcAttachPin(lua_tointeger(L,1),0);
     _pwm0_setup = true;
+    return 0;
+}
+
+static bool _fade_installed = false;
+static int l_pwm_fade(lua_State* L) {
+    int target=lua_tointeger(L,1), duration_ms=lua_tointeger(L,2);
+    if(!_pwm0_setup){ ledcSetup(0,5000,10); _pwm0_setup=true; }
+    if(!_fade_installed){ ledc_fade_func_install(0); _fade_installed=true; }
+    ledc_set_fade_with_time(LEDC_LOW_SPEED_MODE,0,constrain(target,0,1023),duration_ms);
+    ledc_fade_start(LEDC_LOW_SPEED_MODE,0,LEDC_FADE_WAIT_DONE);
     return 0;
 }
 
