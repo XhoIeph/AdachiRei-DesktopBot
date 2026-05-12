@@ -53,6 +53,16 @@ static int l_pwm_freq(lua_State* L) {
     return 0;
 }
 
+static bool _fade_installed = false;
+static int l_pwm_fade(lua_State* L) {
+    int target=lua_tointeger(L,1), duration_ms=lua_tointeger(L,2);
+    if(!_pwm0_setup){ ledcSetup(0,5000,10); _pwm0_setup=true; }
+    if(!_fade_installed){ ledc_fade_func_install(0); _fade_installed=true; }
+    ledc_set_fade_with_time(LEDC_LOW_SPEED_MODE,0,constrain(target,0,1023),duration_ms);
+    ledc_fade_start(LEDC_LOW_SPEED_MODE,0,LEDC_FADE_WAIT_DONE);
+    return 0;
+}
+
 static int l_analog_read(lua_State* L) { lua_pushinteger(L, analogRead(lua_tointeger(L,1))); return 1; }
 
 // DHT11/DHT22 — 返回 Lua table: {temp=25.0, humidity=60.0}
@@ -122,7 +132,7 @@ void luaSetup() {
     luaL_requiref(L, LUA_TABLIBNAME, luaopen_table, 1); lua_pop(L, 1);
     luaL_requiref(L, LUA_MATHLIBNAME, luaopen_math, 1); lua_pop(L, 1);
 
-    // 注册 21 个硬件函数
+    // 注册 22 个硬件函数
     lua_register(L, "led_on",       l_led_on);
     lua_register(L, "led_off",      l_led_off);
     lua_register(L, "led_toggle",   l_led_toggle);
@@ -132,6 +142,7 @@ void luaSetup() {
     lua_register(L, "delay_us",     l_delay_us);
     lua_register(L, "pwm_duty",     l_pwm_duty);
     lua_register(L, "pwm_freq",     l_pwm_freq);
+    lua_register(L, "pwm_fade",     l_pwm_fade);
     lua_register(L, "analog_read",  l_analog_read);
     lua_register(L, "dht_read",     l_dht_read);
     lua_register(L, "i2c_scan",    l_i2c_scan);
@@ -260,26 +271,13 @@ void mqttConnect() {
 }
 
 void statusReport() {
-    String j="{\\\"id\\\":\\\""+String(DEVICE_ID)+"\\\",\\\"heap\\\":"+String(ESP.getFreeHeap())+",\\\"uptime\\\":"+String(millis()/1000)+",\\\"rssi\\\":"+String(WiFi.RSSI())+",\\\"scripts\\\":"+String(scripts.size())+"}";
+    String j="{\"id\":\""+String(DEVICE_ID)+"\",\"heap\":"+String(ESP.getFreeHeap())+",\"uptime\":"+String(millis()/1000)+",\"rssi\":"+String(WiFi.RSSI())+",\"scripts\":"+String(scripts.size())+"}";
     mqtt.publish(MQTT_TOPIC_PUB,j.c_str());
 }
 
 // ====== 用户功能 ======
-void userSetup() {
-    pinMode(LED_PIN, OUTPUT);
-    digitalWrite(LED_PIN, HIGH);
-    Serial.println("Setup Done - Ready!");
-}
-
-void userLoop() {
-    static unsigned long lastBlink = 0;
-    static bool ledState = false;
-    if (millis() - lastBlink > 500) {
-        lastBlink = millis();
-        ledState = !ledState;
-        digitalWrite(LED_PIN, ledState);
-    }
-}
+void userSetup() { /* >>> USER CODE: 初始化 <<< */ }
+void userLoop() { /* >>> USER CODE: 循环 <<< */ }
 
 // ====== 入口 ======
 void setup() {
