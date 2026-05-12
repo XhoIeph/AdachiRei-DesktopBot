@@ -59,18 +59,8 @@ static int l_pwm_fade(lua_State* L) {
     int target=lua_tointeger(L,1), duration_ms=lua_tointeger(L,2);
     if(!_pwm0_setup){ ledcSetup(0,5000,10); _pwm0_setup=true; }
     if(!_fade_installed){ ledc_fade_func_install(0); _fade_installed=true; }
-    ledc_set_fade_with_time(LEDC_LOW_SPEED_MODE,0,constrain(target,0,1023),duration_ms);
-    ledc_fade_start(LEDC_LOW_SPEED_MODE,0,LEDC_FADE_WAIT_DONE);
-    return 0;
-}
-
-static bool _fade_installed = false;
-static int l_pwm_fade(lua_State* L) {
-    int target=lua_tointeger(L,1), duration_ms=lua_tointeger(L,2);
-    if(!_pwm0_setup){ ledcSetup(0,5000,10); _pwm0_setup=true; }
-    if(!_fade_installed){ ledc_fade_func_install(0); _fade_installed=true; }
-    ledc_set_fade_with_time(LEDC_LOW_SPEED_MODE,0,constrain(target,0,1023),duration_ms);
-    ledc_fade_start(LEDC_LOW_SPEED_MODE,0,LEDC_FADE_WAIT_DONE);
+    ledc_set_fade_with_time(LEDC_LOW_SPEED_MODE,LEDC_CHANNEL_0,constrain(target,0,1023),duration_ms);
+    ledc_fade_start(LEDC_LOW_SPEED_MODE,LEDC_CHANNEL_0,LEDC_FADE_WAIT_DONE);
     return 0;
 }
 
