@@ -33,8 +33,10 @@ static int l_led_off(lua_State* L)     { digitalWrite(LED_PIN, LOW);  return 0; 
 static int l_led_toggle(lua_State* L)  { digitalWrite(LED_PIN, !digitalRead(LED_PIN)); return 0; }
 
 static int l_gpio_set(lua_State* L) {
-    pinMode(lua_tointeger(L,1), OUTPUT);
-    digitalWrite(lua_tointeger(L,1), lua_tointeger(L,2)?HIGH:LOW);
+    int p=lua_tointeger(L,1), v=lua_tointeger(L,2);
+    ledcDetachPin(p);
+    pinMode(p, OUTPUT);
+    digitalWrite(p, v?HIGH:LOW);
     return 0;
 }
 static int l_gpio_read(lua_State* L)   { lua_pushinteger(L, digitalRead(lua_tointeger(L,1))); return 1; }
