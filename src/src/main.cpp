@@ -287,7 +287,11 @@ void onMqtt(char* t, byte* p, unsigned int l) {
     }
     delete doc;
 
-    // 非 JSON → 推入异步队列, 立即返回 (不阻塞 MQTT)
+    if(l>0 && p[0]=='{') {
+        if(err) { Serial.print("[MQTT] bad JSON: "); Serial.println(err.c_str()); }
+        return;
+    }
+
     char* script=new char[l+1]{};
     memcpy(script,p,l);
     xQueueSend(_luaQueue, &script, 0);
