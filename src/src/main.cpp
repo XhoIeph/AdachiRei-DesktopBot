@@ -28,6 +28,8 @@ const int   LED_PIN     = 2;
 lua_State* L = nullptr;
 
 // --- 异步脚本队列 ---
+bool luaExec(const String& script);
+
 QueueHandle_t _luaQueue = nullptr;
 
 void luaTask(void* param) {
