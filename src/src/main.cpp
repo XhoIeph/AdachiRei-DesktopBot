@@ -250,20 +250,21 @@ void otaTask(void* param) {
 void onMqtt(char* t, byte* p, unsigned int l) {
     char* b=new char[min(l,(unsigned)4095)+1]{};
     memcpy(b,p,min(l,(unsigned)4095));
-    JsonDocument doc;
-    DeserializationError err=deserializeJson(doc,b);
+    JsonDocument* doc = new JsonDocument();
+    DeserializationError err=deserializeJson(*doc,b);
     delete[] b;
-    if(err) return;
-    const char* cmd=doc["cmd"]; if(!cmd) return;
-    if(!strcmp(cmd,"run_lua"))   { const char* s=doc["script"]|""; if(s[0]) luaExec(String(s)); }
-    else if(!strcmp(cmd,"save_lua")){ const char* n=doc["name"]|"s"; const char* s=doc["script"]|""; if(s[0]) saveScript(String(n),String(s)); }
-    else if(!strcmp(cmd,"set_hardware")){ const char* m=doc["manifest"]; if(m) applyManifest(String(m)); }
+    if(err){ Serial.print("[MQTT] JSON: "); Serial.println(err.c_str()); delete doc; return; }
+    const char* cmd=(*doc)["cmd"]; if(!cmd){ delete doc; return; }
+    if(!strcmp(cmd,"run_lua"))   { const char* s=(*doc)["script"]|""; if(s[0]) luaExec(String(s)); }
+    else if(!strcmp(cmd,"save_lua")){ const char* n=(*doc)["name"]|"s"; const char* s=(*doc)["script"]|""; if(s[0]) saveScript(String(n),String(s)); }
+    else if(!strcmp(cmd,"set_hardware")){ const char* m=(*doc)["manifest"]; if(m) applyManifest(String(m)); }
     else if(!strcmp(cmd,"ota")) {
-        const char* u=doc["url"]|""; if(u[0]){
+        const char* u=(*doc)["url"]|""; if(u[0]){
             String* url=new String(u);
             xTaskCreate(otaTask,"ota",10240,url,1,NULL);
         }
     }
+    delete doc;
 }
 
 void mqttConnect() {
