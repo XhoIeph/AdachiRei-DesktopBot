@@ -248,11 +248,8 @@ void otaTask(void* param) {
 }
 
 void onMqtt(char* t, byte* p, unsigned int l) {
-    char* b=new char[min(l,(unsigned)4095)+1]{};
-    memcpy(b,p,min(l,(unsigned)4095));
     JsonDocument* doc = new JsonDocument();
-    DeserializationError err=deserializeJson(*doc,b);
-    delete[] b;
+    DeserializationError err=deserializeJson(*doc,(const char*)p,min(l,(unsigned)4095));
     if(err){ Serial.print("[MQTT] JSON: "); Serial.println(err.c_str()); delete doc; return; }
     const char* cmd=(*doc)["cmd"]; if(!cmd){ delete doc; return; }
     if(!strcmp(cmd,"run_lua"))   { const char* s=(*doc)["script"]|""; if(s[0]) luaExec(String(s)); }
