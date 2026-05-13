@@ -27,6 +27,19 @@ const int   LED_PIN     = 2;
 // ====== Lua VM (勿修改) ======
 lua_State* L = nullptr;
 
+// --- 异步脚本队列 ---
+QueueHandle_t _luaQueue = nullptr;
+
+void luaTask(void* param) {
+    while(true) {
+        char* script = nullptr;
+        if(xQueueReceive(_luaQueue, &script, portMAX_DELAY) == pdTRUE && script) {
+            luaExec(String(script));
+            delete[] script;
+        }
+    }
+}
+
 // ---------- C → Lua 绑定 ----------
 static int l_led_on(lua_State* L)      { digitalWrite(LED_PIN, HIGH); return 0; }
 static int l_led_off(lua_State* L)     { digitalWrite(LED_PIN, LOW);  return 0; }
@@ -272,11 +285,10 @@ void onMqtt(char* t, byte* p, unsigned int l) {
     }
     delete doc;
 
-    // 非 JSON → 直接当 Lua 脚本执行 (run_lua)
+    // 非 JSON → 推入异步队列, 立即返回 (不阻塞 MQTT)
     char* script=new char[l+1]{};
     memcpy(script,p,l);
-    luaExec(String(script));
-    delete[] script;
+    xQueueSend(_luaQueue, &script, 0);
 }
 
 void mqttConnect() {
@@ -299,6 +311,8 @@ void setup() {
     Serial.begin(115200);
     SPIFFS.begin(true);
     luaSetup();
+    _luaQueue = xQueueCreate(8, sizeof(char*));
+    xTaskCreate(luaTask, "luaQ", 8192, NULL, 1, NULL);
     loadManifest();
     loadScripts();
     pinMode(LED_PIN,OUTPUT);
