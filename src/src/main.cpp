@@ -14,10 +14,13 @@
 #include <ArduinoJson.h>
 #include <vector>
 
+// [EXT_POINT:INCLUDES] 在此添加新外设头文件
+#include <U8g2lib.h>
+
 // ====== 用户配置 ======
-const char* WIFI_SSID   = "你好";
-const char* WIFI_PASS   = "789247847";
-const char* MQTT_BROKER = "47.110.153.97";
+const char* WIFI_SSID   = "YOUR_SSID";
+const char* WIFI_PASS   = "YOUR_PASS";
+const char* MQTT_BROKER = "broker.emqx.io";
 const int   MQTT_PORT   = 1883;
 const char* MQTT_TOPIC_SUB = "astrbot/esp32/control";
 const char* MQTT_TOPIC_PUB = "astrbot/esp32/status";
@@ -28,7 +31,7 @@ const int   LED_PIN     = 2;
 lua_State* L = nullptr;
 
 // --- 异步脚本队列 ---
-bool luaExec(const String& script);
+bool luaExec(const String& script);  // 前置声明
 
 QueueHandle_t _luaQueue = nullptr;
 
@@ -49,7 +52,7 @@ static int l_led_toggle(lua_State* L)  { digitalWrite(LED_PIN, !digitalRead(LED_
 
 static int l_gpio_set(lua_State* L) {
     int p=lua_tointeger(L,1), v=lua_tointeger(L,2);
-    ledcDetachPin(p);
+    ledcDetachPin(p);               // 强制释放 LEDC, 防止 PWM 占用导致 GPIO 无效
     pinMode(p, OUTPUT);
     digitalWrite(p, v?HIGH:LOW);
     return 0;
@@ -140,6 +143,48 @@ static int l_device_id(lua_State* L)  { lua_pushstring(L,DEVICE_ID); return 1; }
 static int l_free_heap(lua_State* L)  { lua_pushinteger(L,ESP.getFreeHeap()); return 1; }
 static int l_millis(lua_State* L)     { lua_pushinteger(L,millis()); return 1; }
 
+// [EXT_POINT:GLOBALS] 在此声明全局 C++ 外设对象
+U8G2* u8g2_display = nullptr;
+
+// [EXT_POINT:BINDINGS] 在此添加新的 Lua C 绑定函数
+// 模式: 取参(lua_tointeger/lua_tostring) → 调用 C++ API → 返回(lua_pushxxx + return n)
+static int l_oled_init(lua_State* L) {
+    if(u8g2_display) return 0;  // 已初始化
+    int addr = lua_gettop(L)>=1 ? lua_tointeger(L,1) : 0x3C;
+    u8g2_display = new U8G2_SSD1306_128X64_NONAME_F_HW_I2C(U8G2_R0, U8X8_PIN_NONE);
+    u8g2_display->setI2CAddress(addr);
+    u8g2_display->begin();
+    u8g2_display->setFont(u8g2_font_6x10_tf);
+    return 0;
+}
+static int l_oled_print(lua_State* L) {
+    if(!u8g2_display) return 0;
+    u8g2_display->drawStr(lua_tointeger(L,1), lua_tointeger(L,2), lua_tostring(L,3));
+    return 0;
+}
+static int l_oled_clear(lua_State* L) { if(u8g2_display) u8g2_display->clearBuffer(); return 0; }
+static int l_oled_send(lua_State* L)  { if(u8g2_display) u8g2_display->sendBuffer(); return 0; }
+static int l_oled_set_font(lua_State* L) {
+    if(!u8g2_display) return 0;
+    const char* f = lua_tostring(L,1);
+    if(!strcmp(f,"large")) u8g2_display->setFont(u8g2_font_ncenB14_tr);
+    else if(!strcmp(f,"medium")) u8g2_display->setFont(u8g2_font_ncenB08_tr);
+    else u8g2_display->setFont(u8g2_font_6x10_tf);  // small / default
+    return 0;
+}
+static int l_oled_draw_pixel(lua_State* L) {
+    if(u8g2_display) u8g2_display->drawPixel(lua_tointeger(L,1), lua_tointeger(L,2));
+    return 0;
+}
+static int l_oled_draw_line(lua_State* L) {
+    if(u8g2_display) u8g2_display->drawLine(lua_tointeger(L,1),lua_tointeger(L,2),lua_tointeger(L,3),lua_tointeger(L,4));
+    return 0;
+}
+static int l_oled_draw_rect(lua_State* L) {
+    if(u8g2_display) u8g2_display->drawFrame(lua_tointeger(L,1),lua_tointeger(L,2),lua_tointeger(L,3),lua_tointeger(L,4));
+    return 0;
+}
+
 // ---------- Lua VM 初始化 ----------
 void luaSetup() {
     L = luaL_newstate();
@@ -151,7 +196,7 @@ void luaSetup() {
     luaL_requiref(L, LUA_TABLIBNAME, luaopen_table, 1); lua_pop(L, 1);
     luaL_requiref(L, LUA_MATHLIBNAME, luaopen_math, 1); lua_pop(L, 1);
 
-    // 注册 22 个硬件函数
+    // 注册硬件函数 (21 个核心 + 8 个 OLED)
     lua_register(L, "led_on",       l_led_on);
     lua_register(L, "led_off",      l_led_off);
     lua_register(L, "led_toggle",   l_led_toggle);
@@ -175,11 +220,23 @@ void luaSetup() {
     lua_register(L, "free_heap",    l_free_heap);
     lua_register(L, "millis",       l_millis);
 
+    // [EXT_POINT:REGISTRATIONS] 在下方追加 lua_register(L, ...)
+    lua_register(L, "oled_init",       l_oled_init);
+    lua_register(L, "oled_print",      l_oled_print);
+    lua_register(L, "oled_clear",      l_oled_clear);
+    lua_register(L, "oled_send",       l_oled_send);
+    lua_register(L, "oled_set_font",   l_oled_set_font);
+    lua_register(L, "oled_draw_pixel", l_oled_draw_pixel);
+    lua_register(L, "oled_draw_line",  l_oled_draw_line);
+    lua_register(L, "oled_draw_rect",  l_oled_draw_rect);
+
     // 重定向 print → Serial
     lua_getglobal(L, "print");
     lua_pushcfunction(L, l_log);
     lua_setglobal(L, "print");
 }
+
+// [DO_NOT_MODIFY_BELOW] 核心 VM 执行 / 硬件 Manifest / SPIFFS / WiFi / MQTT / OTA — 禁止修改
 
 bool luaExec(const String& script) {
     if(!L) return false;
@@ -287,11 +344,13 @@ void onMqtt(char* t, byte* p, unsigned int l) {
     }
     delete doc;
 
+    // payload 以 { 开头 → 损坏的 JSON, 拒绝执行, 防止 OTA/save 等指令被误当 Lua 运行
     if(l>0 && p[0]=='{') {
         if(err) { Serial.print("[MQTT] bad JSON: "); Serial.println(err.c_str()); }
         return;
     }
 
+    // 非 JSON → 推入异步队列 (run_lua)
     char* script=new char[l+1]{};
     memcpy(script,p,l);
     xQueueSend(_luaQueue, &script, 0);
@@ -304,12 +363,24 @@ void mqttConnect() {
 }
 
 void statusReport() {
-    String j="{\"id\":\""+String(DEVICE_ID)+"\",\"heap\":"+String(ESP.getFreeHeap())+",\"uptime\":"+String(millis()/1000)+",\"rssi\":"+String(WiFi.RSSI())+",\"scripts\":"+String(scripts.size())+"}";
+    String j="{\\\"id\\\":\\\""+String(DEVICE_ID)+"\\\",\\\"heap\\\":"+String(ESP.getFreeHeap())+",\\\"uptime\\\":"+String(millis()/1000)+",\\\"rssi\\\":"+String(WiFi.RSSI())+",\\\"scripts\\\":"+String(scripts.size())+"}";
     mqtt.publish(MQTT_TOPIC_PUB,j.c_str());
 }
 
 // ====== 用户功能 ======
-void userSetup() { /* >>> USER CODE: 初始化 <<< */ }
+void userSetup() {
+    // 默认 SSD1306 128x64 I2C (地址 0x3C)
+    l_oled_init(L);  // 复用 Lua 绑定做初始化，或直接 C++ 构造:
+    /* 切换到其他显示驱动 — 替换上面一行为对应的 C++ 构造函数:
+    u8g2_display = new U8G2_SH1106_128X64_NONAME_F_HW_I2C(U8G2_R0, U8X8_PIN_NONE);
+    u8g2_display->begin();
+    u8g2_display->setFont(u8g2_font_6x10_tf);
+    // SSD1306 128x32 I2C
+    u8g2_display = new U8G2_SSD1306_128X32_UNIVISION_F_HW_I2C(U8G2_R0, U8X8_PIN_NONE);
+    // ST7920 128x64 SPI (需指定 CS=5, DC=16, RST=17)
+    u8g2_display = new U8G2_ST7920_128X64_F_HW_SPI(U8G2_R0, 5, 16, 17);
+    */
+}
 void userLoop() { /* >>> USER CODE: 循环 <<< */ }
 
 // ====== 入口 ======
