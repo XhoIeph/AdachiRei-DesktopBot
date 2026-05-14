@@ -18,9 +18,9 @@
 #include <U8g2lib.h>
 
 // ====== 用户配置 ======
-const char* WIFI_SSID   = "YOUR_SSID";
-const char* WIFI_PASS   = "YOUR_PASS";
-const char* MQTT_BROKER = "broker.emqx.io";
+const char* WIFI_SSID   = "你好";
+const char* WIFI_PASS   = "789247847";
+const char* MQTT_BROKER = "47.110.153.97";
 const int   MQTT_PORT   = 1883;
 const char* MQTT_TOPIC_SUB = "astrbot/esp32/control";
 const char* MQTT_TOPIC_PUB = "astrbot/esp32/status";
