@@ -380,17 +380,18 @@ void statusReport() {
 
 // ====== 用户功能 ======
 void userSetup() {
-    // 默认 SSD1306 128x64 I2C (地址 0x3C) — 取消注释以启用:
+    // === 默认 SSD1306 128x64 I2C (地址 0x3C) — 取消注释以启用 ===
     // l_oled_init(L);
-    /* 或通过 Lua 脚本 oled_init(0x3C) 或 oled_init(0x3C, SDA, SCL) 动态初始化 */
-    u8g2_display = new U8G2_SH1106_128X64_NONAME_F_HW_I2C(U8G2_R0, U8X8_PIN_NONE);
-    u8g2_display->begin();
-    u8g2_display->setFont(u8g2_font_6x10_tf);
-    // SSD1306 128x32 I2C
-    u8g2_display = new U8G2_SSD1306_128X32_UNIVISION_F_HW_I2C(U8G2_R0, U8X8_PIN_NONE);
-    // ST7920 128x64 SPI (需指定 CS=5, DC=16, RST=17)
-    u8g2_display = new U8G2_ST7920_128X64_F_HW_SPI(U8G2_R0, 5, 16, 17);
-    */
+    // 或通过 Lua 脚本: oled_init(0x3C)  /  oled_init(0x3C, SDA, SCL)
+    //
+    // === 切换到其他显示驱动 — 替换上面的构造函数 ===
+    // SH1106 128x64 I2C:
+    //   u8g2_display = new U8G2_SH1106_128X64_NONAME_F_HW_I2C(U8G2_R0, U8X8_PIN_NONE);
+    //   u8g2_display->begin();
+    // SSD1306 128x32 I2C:
+    //   u8g2_display = new U8G2_SSD1306_128X32_UNIVISION_F_HW_I2C(U8G2_R0, U8X8_PIN_NONE);
+    // ST7920 128x64 HW SPI (cs, reset):
+    //   u8g2_display = new U8G2_ST7920_128X64_F_HW_SPI(U8G2_R0, /*cs*/5, /*reset*/17);
 }
 void userLoop() { /* >>> USER CODE: 循环 <<< */ }
 
