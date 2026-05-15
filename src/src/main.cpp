@@ -166,12 +166,6 @@ static int l_oled_init(lua_State* L) {
     }
     oled_display->clearDisplay();
     oled_display->setTextColor(WHITE);
-    // 自检: 全屏刷白 2 秒
-    oled_display->fillRect(0, 0, 128, 64, WHITE);
-    oled_display->display();
-    delay(2000);
-    oled_display->clearDisplay();
-    oled_display->display();
     Serial.println("[OLED] init done");
     return 0;
 }
