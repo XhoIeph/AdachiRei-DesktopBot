@@ -110,8 +110,10 @@ static int l_i2c_scan(lua_State* L) {
     lua_pushstring(L,r.c_str()); return 1;
 }
 static int l_i2c_write(lua_State* L) {
+    size_t len;
+    const char* data = lua_tolstring(L, 2, &len);
     Wire.beginTransmission((uint8_t)lua_tointeger(L,1));
-    Wire.write((uint8_t*)lua_tostring(L,2),strlen(lua_tostring(L,2)));
+    Wire.write((uint8_t*)data, len);
     lua_pushinteger(L, Wire.endTransmission()==0); return 1;
 }
 static int l_i2c_read(lua_State* L) {
