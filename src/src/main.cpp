@@ -27,6 +27,10 @@ const char* MQTT_TOPIC_PUB = "astrbot/esp32/status";
 const char* DEVICE_ID   = "esp32_01";
 const int   LED_PIN     = 2;
 
+// ====== I2C 引脚配置 (SSD1306 OLED: SDA=GPIO8, SCL=GPIO9) ======
+const int I2C_SDA = 8;
+const int I2C_SCL = 9;
+
 // ====== Lua VM (勿修改) ======
 lua_State* L = nullptr;
 
@@ -151,14 +155,21 @@ U8G2* u8g2_display = nullptr;
 static int l_oled_init(lua_State* L) {
     if(u8g2_display) { delete u8g2_display; u8g2_display = nullptr; }
     int addr = lua_gettop(L)>=1 ? lua_tointeger(L,1) : 0x3C;
-    // HW I2C — Wire has been initialized by loadManifest()
     u8g2_display = new U8G2_SSD1306_128X64_NONAME_F_HW_I2C(U8G2_R0, U8X8_PIN_NONE);
     u8g2_display->setI2CAddress(addr);
     if(!u8g2_display->begin()) {
         Serial.println("[OLED] u8g2 begin() returned false");
+        return 0;
     }
+    Wire.setClock(400000);
     u8g2_display->setFont(u8g2_font_6x10_tf);
-    Serial.println("[OLED] init done");
+    u8g2_display->clearBuffer();
+    u8g2_display->drawBox(0, 0, 128, 64);
+    u8g2_display->sendBuffer();
+    delay(2000);
+    u8g2_display->clearBuffer();
+    u8g2_display->sendBuffer();
+    Serial.println("[OLED] init done + self-test passed");
     return 0;
 }
 static int l_oled_print(lua_State* L) {
@@ -262,7 +273,8 @@ void applyManifest(const String& json) {
     JsonDocument doc;
     DeserializationError err = deserializeJson(doc, json);
     if(err) {
-        Wire.begin();
+        // 默认 I2C: SDA=GPIO8, SCL=GPIO9
+        Wire.begin(I2C_SDA, I2C_SCL);
         SPI.begin();
         SPIFFS.remove("/hardware.json");
         return;
@@ -274,7 +286,7 @@ void applyManifest(const String& json) {
     // I2C 引脚
     if(!doc["i2c_sda"].isNull() && !doc["i2c_scl"].isNull())
         Wire.begin(doc["i2c_sda"].as<int>(), doc["i2c_scl"].as<int>());
-    else Wire.begin();
+    else Wire.begin(I2C_SDA, I2C_SCL);
     // SPI 引脚
     if(!doc["spi_mosi"].isNull())
         SPI.begin(doc["spi_sck"].as<int>()|18, doc["spi_miso"].as<int>()|19, doc["spi_mosi"].as<int>()|23, doc["spi_cs"].as<int>()|(-1));
@@ -284,7 +296,7 @@ void applyManifest(const String& json) {
 void loadManifest() {
     File f = SPIFFS.open("/hardware.json");
     if(f){ hwManifest = f.readString(); f.close(); applyManifest(hwManifest); }
-    else{ Wire.begin(); SPI.begin(); }
+    else{ Wire.begin(I2C_SDA, I2C_SCL); SPI.begin(); }
 }
 
 // ====== SPIFFS 脚本存储 ======
@@ -326,8 +338,21 @@ void wifiConnect() {
 
 void otaTask(void* param) {
     String* url=(String*)param;
+    Serial.printf("[OTA] downloading %s\n", url->c_str());
     HTTPClient h; h.begin(*url);
-    if(h.GET()==200){ Update.begin(h.getSize()); Update.writeStream(*h.getStreamPtr()); if(Update.end()){ delay(500); ESP.restart(); } }
+    int code = h.GET();
+    Serial.printf("[OTA] HTTP %d, size=%d\n", code, h.getSize());
+    if(code==200){
+        Serial.println("[OTA] flashing...");
+        Update.begin(h.getSize());
+        Update.writeStream(*h.getStreamPtr());
+        if(Update.end()){
+            Serial.println("[OTA] success, rebooting...");
+            delay(500); ESP.restart();
+        } else {
+            Serial.printf("[OTA] Update error: %s\n", Update.errorString());
+        }
+    }
     h.end(); delete url; vTaskDelete(NULL);
 }
 
@@ -379,18 +404,6 @@ void statusReport() {
 
 // ====== 用户功能 ======
 void userSetup() {
-    // === 默认 SSD1306 128x64 I2C (地址 0x3C) — 取消注释以启用 ===
-    // l_oled_init(L);
-    // 或通过 Lua 脚本: oled_init(0x3C)  /  oled_init(0x3C, SDA, SCL)
-    //
-    // === 切换到其他显示驱动 — 替换上面的构造函数 ===
-    // SH1106 128x64 I2C:
-    //   u8g2_display = new U8G2_SH1106_128X64_NONAME_F_HW_I2C(U8G2_R0, U8X8_PIN_NONE);
-    //   u8g2_display->begin();
-    // SSD1306 128x32 I2C:
-    //   u8g2_display = new U8G2_SSD1306_128X32_UNIVISION_F_HW_I2C(U8G2_R0, U8X8_PIN_NONE);
-    // ST7920 128x64 HW SPI (cs, reset):
-    //   u8g2_display = new U8G2_ST7920_128X64_F_HW_SPI(U8G2_R0, /*cs*/5, /*reset*/17);
 }
 void userLoop() { /* >>> USER CODE: 循环 <<< */ }
 
