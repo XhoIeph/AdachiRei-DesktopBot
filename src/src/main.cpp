@@ -15,7 +15,7 @@
 #include <vector>
 
 // [EXT_POINT:INCLUDES] 在此添加新外设头文件
-#include <U8g2lib.h>
+#include <Adafruit_SSD1306.h>
 
 // ====== 用户配置 ======
 const char* WIFI_SSID   = "你好";
@@ -150,55 +150,57 @@ static int l_free_heap(lua_State* L)  { lua_pushinteger(L,ESP.getFreeHeap()); re
 static int l_millis(lua_State* L)     { lua_pushinteger(L,millis()); return 1; }
 
 // [EXT_POINT:GLOBALS] 在此声明全局 C++ 外设对象
-U8G2* u8g2_display = nullptr;
+Adafruit_SSD1306* oled_display = nullptr;
 
 // [EXT_POINT:BINDINGS] 在此添加新的 Lua C 绑定函数
 // 模式: 取参(lua_tointeger/lua_tostring) → 调用 C++ API → 返回(lua_pushxxx + return n)
 static int l_oled_init(lua_State* L) {
-    if(u8g2_display) { delete u8g2_display; u8g2_display = nullptr; }
+    if(oled_display) { delete oled_display; oled_display = nullptr; }
     int addr = lua_gettop(L)>=1 ? lua_tointeger(L,1) : 0x3C;
-    u8g2_display = new U8G2_SSD1306_128X64_NONAME_F_HW_I2C(U8G2_R0, U8X8_PIN_NONE);
-    u8g2_display->setI2CAddress(addr);
-    if(!u8g2_display->begin()) {
-        Serial.println("[OLED] u8g2 begin() returned false");
+    oled_display = new Adafruit_SSD1306(128, 64, &Wire, -1);
+    if(!oled_display->begin(SSD1306_SWITCHCAPVCC, addr)) {
+        Serial.println("[OLED] begin() failed");
+        delete oled_display;
+        oled_display = nullptr;
         return 0;
     }
-    Wire.setClock(400000);
-    u8g2_display->setFont(u8g2_font_6x10_tf);
-    u8g2_display->clearBuffer();
-    u8g2_display->drawBox(0, 0, 128, 64);
-    u8g2_display->sendBuffer();
+    oled_display->clearDisplay();
+    oled_display->setTextColor(WHITE);
+    // 自检: 全屏刷白 2 秒
+    oled_display->fillRect(0, 0, 128, 64, WHITE);
+    oled_display->display();
     delay(2000);
-    u8g2_display->clearBuffer();
-    u8g2_display->sendBuffer();
-    Serial.println("[OLED] init done + self-test passed");
+    oled_display->clearDisplay();
+    oled_display->display();
+    Serial.println("[OLED] init done");
     return 0;
 }
 static int l_oled_print(lua_State* L) {
-    if(!u8g2_display) return 0;
-    u8g2_display->drawStr(lua_tointeger(L,1), lua_tointeger(L,2), lua_tostring(L,3));
+    if(!oled_display) return 0;
+    oled_display->setCursor(lua_tointeger(L,1), lua_tointeger(L,2));
+    oled_display->print(lua_tostring(L,3));
     return 0;
 }
-static int l_oled_clear(lua_State* L) { if(u8g2_display) u8g2_display->clearBuffer(); return 0; }
-static int l_oled_send(lua_State* L)  { if(u8g2_display) u8g2_display->sendBuffer(); return 0; }
+static int l_oled_clear(lua_State* L) { if(oled_display) oled_display->clearDisplay(); return 0; }
+static int l_oled_send(lua_State* L)  { if(oled_display) oled_display->display(); return 0; }
 static int l_oled_set_font(lua_State* L) {
-    if(!u8g2_display) return 0;
+    if(!oled_display) return 0;
     const char* f = lua_tostring(L,1);
-    if(!strcmp(f,"large")) u8g2_display->setFont(u8g2_font_ncenB14_tr);
-    else if(!strcmp(f,"medium")) u8g2_display->setFont(u8g2_font_ncenB08_tr);
-    else u8g2_display->setFont(u8g2_font_6x10_tf);  // small / default
+    if(!strcmp(f,"large")) oled_display->setTextSize(3);
+    else if(!strcmp(f,"medium")) oled_display->setTextSize(2);
+    else oled_display->setTextSize(1);
     return 0;
 }
 static int l_oled_draw_pixel(lua_State* L) {
-    if(u8g2_display) u8g2_display->drawPixel(lua_tointeger(L,1), lua_tointeger(L,2));
+    if(oled_display) oled_display->drawPixel(lua_tointeger(L,1), lua_tointeger(L,2), WHITE);
     return 0;
 }
 static int l_oled_draw_line(lua_State* L) {
-    if(u8g2_display) u8g2_display->drawLine(lua_tointeger(L,1),lua_tointeger(L,2),lua_tointeger(L,3),lua_tointeger(L,4));
+    if(oled_display) oled_display->drawLine(lua_tointeger(L,1),lua_tointeger(L,2),lua_tointeger(L,3),lua_tointeger(L,4), WHITE);
     return 0;
 }
 static int l_oled_draw_rect(lua_State* L) {
-    if(u8g2_display) u8g2_display->drawFrame(lua_tointeger(L,1),lua_tointeger(L,2),lua_tointeger(L,3),lua_tointeger(L,4));
+    if(oled_display) oled_display->drawRect(lua_tointeger(L,1),lua_tointeger(L,2),lua_tointeger(L,3),lua_tointeger(L,4), WHITE);
     return 0;
 }
 
@@ -406,6 +408,13 @@ void statusReport() {
 
 // ====== 用户功能 ======
 void userSetup() {
+    // === OLED 初始化 — 取消注释以在启动时启用 ===
+    // l_oled_init(L);  // 等价于 Lua: oled_init(0x3C)
+    //
+    // === 其他显示/引脚配置 ===
+    // 修改 Wire 引脚: Wire.begin(SDA_PIN, SCL_PIN);
+    // 更换显示尺寸: Adafruit_SSD1306 display(128, 64, &Wire, -1);
+    // 更换驱动芯片 (如 SH1106): 使用 Adafruit_SH1106 库替代
 }
 void userLoop() { /* >>> USER CODE: 循环 <<< */ }
 
