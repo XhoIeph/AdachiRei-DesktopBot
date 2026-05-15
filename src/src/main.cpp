@@ -263,7 +263,13 @@ String hwManifest;
 
 void applyManifest(const String& json) {
     JsonDocument doc;
-    if(deserializeJson(doc, json)) return;
+    DeserializationError err = deserializeJson(doc, json);
+    if(err) {
+        Wire.begin();
+        SPI.begin();
+        SPIFFS.remove("/hardware.json");
+        return;
+    }
     hwManifest = json;
     // 保存到 SPIFFS
     File f = SPIFFS.open("/hardware.json", FILE_WRITE);
