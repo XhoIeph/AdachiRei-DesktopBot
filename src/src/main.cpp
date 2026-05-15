@@ -149,18 +149,14 @@ U8G2* u8g2_display = nullptr;
 // [EXT_POINT:BINDINGS] 在此添加新的 Lua C 绑定函数
 // 模式: 取参(lua_tointeger/lua_tostring) → 调用 C++ API → 返回(lua_pushxxx + return n)
 static int l_oled_init(lua_State* L) {
-    if(u8g2_display) { delete u8g2_display; u8g2_display = nullptr; }  // 允许重新初始化
+    if(u8g2_display) { delete u8g2_display; u8g2_display = nullptr; }
     int addr = lua_gettop(L)>=1 ? lua_tointeger(L,1) : 0x3C;
     int sda  = lua_gettop(L)>=2 ? lua_tointeger(L,2) : -1;
     int scl  = lua_gettop(L)>=3 ? lua_tointeger(L,3) : -1;
     if(sda >= 0 && scl >= 0) {
-        // Software I2C — 指定引脚, 避免 Wire.begin() 覆盖冲突
-        u8g2_display = new U8G2_SSD1306_128X64_NONAME_F_SW_I2C(U8G2_R0, /*clock*/scl, /*data*/sda, U8X8_PIN_NONE);
+        Wire1.begin(sda, scl);
+        u8g2_display = new U8G2_SSD1306_128X64_NONAME_2ND_HW_I2C(U8G2_R0, U8X8_PIN_NONE);
     } else {
-        // Hardware I2C — 强制重置 Wire 状态再初始化
-        Wire.end();
-        delay(10);
-        Wire.begin();
         u8g2_display = new U8G2_SSD1306_128X64_NONAME_F_HW_I2C(U8G2_R0, U8X8_PIN_NONE);
     }
     u8g2_display->setI2CAddress(addr);
