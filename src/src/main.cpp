@@ -155,7 +155,7 @@ static int l_oled_init(lua_State* L) {
     int scl  = lua_gettop(L)>=3 ? lua_tointeger(L,3) : -1;
     if(sda >= 0 && scl >= 0) {
         Wire1.begin(sda, scl);
-        u8g2_display = new U8G2_SSD1306_128X64_NONAME_2ND_HW_I2C(U8G2_R0, U8X8_PIN_NONE);
+        u8g2_display = new U8G2_SSD1306_128X64_NONAME_F_2ND_HW_I2C(U8G2_R0, U8X8_PIN_NONE);
     } else {
         u8g2_display = new U8G2_SSD1306_128X64_NONAME_F_HW_I2C(U8G2_R0, U8X8_PIN_NONE);
     }
