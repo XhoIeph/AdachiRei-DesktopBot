@@ -149,7 +149,7 @@ U8G2* u8g2_display = nullptr;
 // [EXT_POINT:BINDINGS] 在此添加新的 Lua C 绑定函数
 // 模式: 取参(lua_tointeger/lua_tostring) → 调用 C++ API → 返回(lua_pushxxx + return n)
 static int l_oled_init(lua_State* L) {
-    if(u8g2_display) return 0;  // 已初始化
+    if(u8g2_display) { delete u8g2_display; u8g2_display = nullptr; }  // 允许重新初始化
     int addr = lua_gettop(L)>=1 ? lua_tointeger(L,1) : 0x3C;
     int sda  = lua_gettop(L)>=2 ? lua_tointeger(L,2) : -1;
     int scl  = lua_gettop(L)>=3 ? lua_tointeger(L,3) : -1;
@@ -157,6 +157,10 @@ static int l_oled_init(lua_State* L) {
         // Software I2C — 指定引脚, 避免 Wire.begin() 覆盖冲突
         u8g2_display = new U8G2_SSD1306_128X64_NONAME_F_SW_I2C(U8G2_R0, /*clock*/scl, /*data*/sda, U8X8_PIN_NONE);
     } else {
+        // Hardware I2C — 强制重置 Wire 状态再初始化
+        Wire.end();
+        delay(10);
+        Wire.begin();
         u8g2_display = new U8G2_SSD1306_128X64_NONAME_F_HW_I2C(U8G2_R0, U8X8_PIN_NONE);
     }
     u8g2_display->setI2CAddress(addr);
@@ -376,9 +380,9 @@ void statusReport() {
 
 // ====== 用户功能 ======
 void userSetup() {
-    // 默认 SSD1306 128x64 I2C (地址 0x3C)
-    l_oled_init(L);  // 复用 Lua 绑定做初始化，或直接 C++ 构造:
-    /* 切换到其他显示驱动 — 替换上面一行为对应的 C++ 构造函数:
+    // 默认 SSD1306 128x64 I2C (地址 0x3C) — 取消注释以启用:
+    // l_oled_init(L);
+    /* 或通过 Lua 脚本 oled_init(0x3C) 或 oled_init(0x3C, SDA, SCL) 动态初始化 */
     u8g2_display = new U8G2_SH1106_128X64_NONAME_F_HW_I2C(U8G2_R0, U8X8_PIN_NONE);
     u8g2_display->begin();
     u8g2_display->setFont(u8g2_font_6x10_tf);
