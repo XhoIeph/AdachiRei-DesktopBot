@@ -151,16 +151,14 @@ U8G2* u8g2_display = nullptr;
 static int l_oled_init(lua_State* L) {
     if(u8g2_display) { delete u8g2_display; u8g2_display = nullptr; }
     int addr = lua_gettop(L)>=1 ? lua_tointeger(L,1) : 0x3C;
-    int sda  = lua_gettop(L)>=2 ? lua_tointeger(L,2) : 8;
-    int scl  = lua_gettop(L)>=3 ? lua_tointeger(L,3) : 9;
-    Wire.end();
-    delay(10);
-    pinMode(sda, INPUT);
-    pinMode(scl, INPUT);
-    u8g2_display = new U8G2_SSD1306_128X64_NONAME_F_SW_I2C(U8G2_R0, /*clock*/scl, /*data*/sda, U8X8_PIN_NONE);
+    // HW I2C — Wire has been initialized by loadManifest()
+    u8g2_display = new U8G2_SSD1306_128X64_NONAME_F_HW_I2C(U8G2_R0, U8X8_PIN_NONE);
     u8g2_display->setI2CAddress(addr);
-    u8g2_display->begin();
+    if(!u8g2_display->begin()) {
+        Serial.println("[OLED] u8g2 begin() returned false");
+    }
     u8g2_display->setFont(u8g2_font_6x10_tf);
+    Serial.println("[OLED] init done");
     return 0;
 }
 static int l_oled_print(lua_State* L) {
